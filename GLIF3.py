@@ -51,7 +51,7 @@ class GLIF3(nn.Module):
         assert type(I_ext) is list
         assert I_ext[0].shape[1] == self.n_neurons
         #I_ext : list of tensors with each tensor's shape=[batch,n_neurons], and len(I) = duration
-        V_pred = [torch.zeros_like(I_ext[0])]
+        V_pred = [torch.ones_like(I_ext[0])*self.V_rest]
         S_pred = [torch.zeros_like(I_ext[0])]
 
         asc = torch.zeros((I_ext[0].shape[0], self.n_ascs, self.n_neurons)).to(self.device) # shape:[batch,2,n_neurons]
