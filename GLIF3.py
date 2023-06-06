@@ -61,7 +61,7 @@ class GLIF3(nn.Module):
         
         for cur in I_ext:
             #calculate the actual usable dt in each time bin for each neuron by excluding the spike_window_len.
-            spike_free_dt = nn.functional.relu(self.dt-frozen_dt)
+            spike_free_dt = nn.functional.relu(self.dt+frozen_dt) # frozen_dt non-possitive. 
             #both the asc and the I_int at the present time bin is calculated based on the spike status of the previous time bin.
             asc = asc*(1 - spike_free_dt[:,None,:]*self.K_Ij)
             I_int = self.syn_cur(S_pred[-1],W=None)
