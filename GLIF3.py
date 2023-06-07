@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 class GLIF3(nn.Module):
     def __init__(self,
                  neuronal_model_paras,  # dictionary of parameters {'K_V': [K_V,K_V,....,K_V], 'R_V': ..., ...}
-                 dt=0.002,  # length of a time bin (seconds).
+                 dt=0.002,  # length of a time bin (seconds). dt should be large than the shortest spike_len.
                  device='cuda'):
 
         super().__init__()
@@ -26,6 +26,8 @@ class GLIF3(nn.Module):
         self.R_Ij = nn.Parameter(torch.ones_like(torch.tensor(neuronal_model_paras['K_Ij'])).T, requires_grad=False)
         self.A_Ij = nn.Parameter(torch.tensor(neuronal_model_paras['A_Ij']).T, requires_grad=False)
         self.to(device)
+        if torch.min(self.spike_len) <= self.dt:
+            raise Exception('Error: dt is too small. Choose dt to be greater than the shortest spike window length.')
         
     def syn_cur(self,S,W=None):
         '''calculate the synaptic current based on the connectivity matrix and the predicted spikes.
@@ -56,31 +58,44 @@ class GLIF3(nn.Module):
 
         asc = torch.zeros((I_ext[0].shape[0], self.n_ascs, self.n_neurons)).to(self.device) # shape:[batch,2,n_neurons]
         
-        #define a non-positive frozen_dt which increase to zero linearly in time but decrease by spike_length when a neuron spikes. 
-        frozen_dt = torch.zeros_like(I_ext[0])
+        #define a non-positive remaining_spike_window which increase to zero linearly in time but decrease by spike_len when a neuron spikes. 
+        remaining_spike_window = torch.zeros_like(I_ext[0])
+        #define a spike_portion_dt which denotes the length of time in each dt time bin where the neuron is in a spiek window. 
+        spike_portion_of_dt = torch.zeros_like(I_ext[0])
         
+        S = torch.zeros_like(I_ext[0])
         for cur in I_ext:
-            #calculate the actual usable dt in each time bin for each neuron by excluding the spike_window_len.
-            spike_free_dt = nn.functional.relu(self.dt+frozen_dt) # frozen_dt non-possitive. 
-            #both the asc and the I_int at the present time bin is calculated based on the spike status of the previous time bin.
-            asc = asc*(1 - spike_free_dt[:,None,:]*self.K_Ij)
-            I_int = self.syn_cur(S_pred[-1],W=None)
+            #based on the asc, I_ext, and I_int from previous time bin, we calculate a preliminary voltage for this current time bin using 1st order Eular forward method. 
+            # This voltage can potentially pass the threshold. If it does, we 
+            #       1) reset the V to V_reset, since the dt < min(spike_window) and the spike_len will for sure go beyound the current time bin;
+            #       2) calculate how much time (0<=spike_portion_of_dt<=dt) of the current time bin of length dt falls are within the spike_len.
+            #       3) only evolve the asc for self.dt-spike_portion_of_dt and then add the A_ij. During the spike window, the asc remains constant;# the usable 
             
-            #calculate the prelinary voltage based on the asc and the I_int
-            V_ = V_pred[-1] - spike_free_dt*self.K_V*(V_pred[-1] - self.V_rest) + spike_free_dt*(cur + I_int + asc.sum(1))*self.R_V_K_V
-            # calculate the S based on the preliminary voltage
-            S = torch.heaviside(V_- self.V_threshold,values=torch.zeros_like(V_))*(frozen_dt==0.0)
+            #calculate the actual usable dt in the current time bin which is free from the spike window.
+            dt_minus_remaining_spike_window = (self.dt-remaining_spike_window).clamp(min=0.0) 
+            # substract the remaining_spike_window by dt. We will latter add time to remaining_spike_window if neuron begins to fire at this time bin.
+            remaining_spike_window = (remaining_spike_window - self.dt).clamp(min=0.0)
             
-            # increase asc by A_Ij for firing neurons:
-            asc = asc + (S[:,None,:]==1)*(asc*self.R_Ij + self.A_Ij)
-            
-            # decrease the frozen_dt by -1.0*spike_len for neurons that fire in this time bin, and increase frozen_dt by self.dt for all neurons, then clamp frozen_dt to 0.
-            frozen_dt = (frozen_dt - (S[:,:]==1)*self.spike_len + self.dt).clamp(max=0.0)
-
-            S_pred.append(S)
-            #reset the preliminary voltage V_ to V_reset for firing neurons
+            #calculate the prelinary voltage based on the asc and the I_int, and the dt_minus_remaining_spike_window
+            I_int = self.syn_cur(S)
+            V_ = V_pred[-1] - dt_minus_remaining_spike_window*self.K_V*(V_pred[-1] - self.V_rest) + dt_minus_remaining_spike_window*(cur + I_int + asc.sum(1))*self.R_V_K_V
+            # If the V_ becomes greater than the threshold:
+            #           1. We set S=1 for neurons that begin to fire during this time bin:
+            S = torch.heaviside(V_- self.V_threshold,values=torch.zeros_like(V_))
+            #           2. Calculate the amount of time where this time bin overlapes with the begining of the spike window:
+            spike_window_head = dt_minus_remaining_spike_window *  (1.0 - ( (self.V_threshold-V_pred[-1]) / (torch.max(V_,self.V_threshold) - V_pred[-1]) ))
+            #           3. Reset the voltage for neurons that begins to fire during this time bin to V_threshold, and denote this voltage by V:
             V = (S[:,:]==0)*V_ + (S[:,:]==1)*(self.V_reset)
-            
+            #           4. Remove the spike_window_head from the dt_minus_remaining_spike_window and obtain the actual usable time during this time bin:
+            spike_free_dt = dt_minus_remaining_spike_window - spike_window_head
+            #           5. based on the usable time bin, calculate the asc:
+            asc = asc*(1 - spike_free_dt[:,None,:]*self.K_Ij)
+            #           6. for neurons that begins to spike at this time bin, modify the asc:
+            asc = asc + (S[:,None,:]==1)*(asc*self.R_Ij + self.A_Ij)
+            #           7. for neurons that begin to fire at this time bin, add dt to their remaining_spike_window, but also substract the spike_window_head.
+            remaining_spike_window = remaining_spike_window + (S==1)*self.spike_len - spike_window_head
+
+            S_pred.append(S)            
             V_pred.append(V)
         return torch.stack(S_pred[1:], 1), torch.stack(V_pred[1:], 1)
 
@@ -96,6 +111,10 @@ def example():
     I_ext = [torch.zeros(5,3).to('cuda') for k in range(int(2/0.002))] \
             + [300*torch.ones(5,3).to('cuda') for k in range(int(2/0.002))] \
             + [torch.zeros(5,3).to('cuda') for k in range(int(2/0.002))] 
+    
+    glif3 = GLIF3(glif3_paras,  # dictionary of parameters {'K_V': [K_V,K_V,....,K_V], 'R_V': ..., ...}
+                 dt=0.002,  # this should be the length of a time bin in units of seconds.
+                 device='cuda')
     
     S_pred,V_pred = glif3(I_ext)
     plt.figure()
