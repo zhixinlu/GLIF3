@@ -63,7 +63,6 @@ class GLIF3(nn.Module):
         #define a spike_portion_dt which denotes the length of time in each dt time bin where the neuron is in a spiek window. 
         spike_portion_of_dt = torch.zeros_like(I_ext[0])
         
-        S = torch.zeros_like(I_ext[0])
         for cur in I_ext:
             #remove from dt the spike windows from previously detected spikes.
             dt_minus_remaining_spike_window = (self.dt-remaining_spike_window).clamp(min=0.0) 
@@ -73,7 +72,7 @@ class GLIF3(nn.Module):
             remaining_spike_window = (remaining_spike_window - self.dt).clamp(min=0.0)
             
             #calculate the prelinary voltage based on the asc and the I_int, and the dt_minus_remaining_spike_window.
-            I_int = self.syn_cur(S)
+            I_int = self.syn_cur(S_pred[-1])
             V_ = V_pred[-1] - dt_minus_remaining_spike_window*self.K_V*(V_pred[-1] - self.V_rest) + dt_minus_remaining_spike_window*(cur + I_int + asc.sum(1))*self.R_V_K_V
             
             #Given the preliminary voltage which may exceeds the V_threshold, we:
