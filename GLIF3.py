@@ -65,22 +65,19 @@ class GLIF3(nn.Module):
         
         S = torch.zeros_like(I_ext[0])
         for cur in I_ext:
-            #based on the asc, I_ext, and I_int from previous time bin, we calculate a preliminary voltage for this current time bin using 1st order Eular forward method. 
-            # This voltage can potentially pass the threshold. If it does, we 
-            #       1) reset the V to V_reset, since the dt < min(spike_window) and the spike_len will for sure go beyound the current time bin;
-            #       2) calculate how much time (0<=spike_portion_of_dt<=dt) of the current time bin of length dt falls are within the spike_len.
-            #       3) only evolve the asc for self.dt-spike_portion_of_dt and then add the A_ij. During the spike window, the asc remains constant;# the usable 
-            
-            #calculate the actual usable dt in the current time bin which is free from the spike window.
+            #remove from dt the spike windows from previously detected spikes.
             dt_minus_remaining_spike_window = (self.dt-remaining_spike_window).clamp(min=0.0) 
-            # substract the remaining_spike_window by dt. We will latter add time to remaining_spike_window if neuron begins to fire at this time bin.
+            
+            # as we move into this new time bin, we substract the remaining_spike_window by dt. 
+            #     If the neuron fires in this time bin, we will latter add spike_len to the remaining_spike_window.
             remaining_spike_window = (remaining_spike_window - self.dt).clamp(min=0.0)
             
-            #calculate the prelinary voltage based on the asc and the I_int, and the dt_minus_remaining_spike_window
+            #calculate the prelinary voltage based on the asc and the I_int, and the dt_minus_remaining_spike_window.
             I_int = self.syn_cur(S)
             V_ = V_pred[-1] - dt_minus_remaining_spike_window*self.K_V*(V_pred[-1] - self.V_rest) + dt_minus_remaining_spike_window*(cur + I_int + asc.sum(1))*self.R_V_K_V
-            # If the V_ becomes greater than the threshold:
-            #           1. We set S=1 for neurons that begin to fire during this time bin:
+            
+            #Given the preliminary voltage which may exceeds the V_threshold, we:
+            #           1. Set S=1 for neurons that begin to fire during this time bin:
             S = torch.heaviside(V_- self.V_threshold,values=torch.zeros_like(V_))
             #           2. Calculate the amount of time where this time bin overlapes with the begining of the spike window:
             spike_window_head = dt_minus_remaining_spike_window *  (1.0 - ( (self.V_threshold-V_pred[-1]) / (torch.max(V_,self.V_threshold) - V_pred[-1]) ))
@@ -90,7 +87,7 @@ class GLIF3(nn.Module):
             spike_free_dt = dt_minus_remaining_spike_window - spike_window_head
             #           5. based on the usable time bin, calculate the asc:
             asc = asc*(1 - spike_free_dt[:,None,:]*self.K_Ij)
-            #           6. for neurons that begins to spike at this time bin, modify the asc:
+            #           6. for neurons that begin to spike during this time bin, modify the asc using the A_Ij and R_Ij:
             asc = asc + (S[:,None,:]==1)*(asc*self.R_Ij + self.A_Ij)
             #           7. for neurons that begin to fire at this time bin, add dt to their remaining_spike_window, but also substract the spike_window_head.
             remaining_spike_window = remaining_spike_window + (S==1)*self.spike_len - spike_window_head
