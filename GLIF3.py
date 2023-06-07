@@ -89,7 +89,7 @@ class GLIF3(nn.Module):
             asc = asc*(1 - spike_free_dt[:,None,:]*self.K_Ij)
             #           6. for neurons that begin to spike during this time bin, modify the asc using the A_Ij and R_Ij:
             asc = asc + (S[:,None,:]==1)*(asc*self.R_Ij + self.A_Ij)
-            #           7. for neurons that begin to fire at this time bin, add dt to their remaining_spike_window, but also substract the spike_window_head.
+            #           7. for neurons that begin to fire at this time bin, add spike_len to their remaining_spike_window, but also substract the spike_window_head.
             remaining_spike_window = remaining_spike_window + (S==1)*self.spike_len - spike_window_head
 
             S_pred.append(S)            
