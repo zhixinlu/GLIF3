@@ -46,7 +46,7 @@ class NLGLIF5(nn.Module):
     def V_reset(self):
         return self.V_rest + self.V_reset_intcp + self.V_reset_slope*(self.V_spike_begin-self.V_rest)
     def R_inv(self,V):
-        return self.alpha + self.beta*(V-self.V_rest) + self.gamma*(V-self.V_rest)**2.0
+        return self.gamma + self.beta*(V-self.V_rest) + self.alpha*(V-self.V_rest)**2.0
         
     def syn_cur(self,S,W=None):
         '''calculate the synaptic current based on the connectivity matrix and the predicted spikes.
@@ -136,17 +136,17 @@ class NLGLIF5(nn.Module):
 def example():
     nlglif5_paras = {'V_rest': [-75.0,-70.0,-65.0],
                    'C_inv': [11.0,12.0,13.0],
-                   'gamma': [0.003,0.002,0.003],
+                   'alpha': [0.003,0.002,0.003],
                    'beta': [-0.06,-0.05,-0.06],
-                   'alpha': [3.8,3.8,3.8],
+                   'gamma': [3.8,3.8,3.8],
                    'V_rest': [-75.0,-70.0,-65.0],
-                   'V_reset_slope': [1.0,0.9,0.9],
-                   'V_reset_intcp': [-30.0,-20.0,-20.0],
+                   'V_reset_slope': [0.9,0.9,0.9],
+                   'V_reset_intcp': [-20.0,-20.0,-20.0],
                    'V_threshold': [-40.0,-40.0,-50.0],
-                   'K_theta_s': [0.0,0.0,0.0],
-                   'K_theta_v': [0.0,0.0,0.0],
-                   'A_theta_v': [0.0,0.0,0.0],
-                   'A_theta_s': [0.0,0.0,0.0],
+                   'K_theta_s': [100.0,100.0,100.0],
+                   'K_theta_v': [100.0,100.0,10.0],
+                   'A_theta_v': [0.01,0.001,14.0],
+                   'A_theta_s': [-0.0,-0.0,0.0],
                    'K_Ij': [[ 10., 300.],[10.,300.],[10.,300.]],
                    'A_Ij': [[-18.2971913 , 194.31189362],[-21.239182 , 292.11231362],[-15.9021913 , 90.32856483]],
                    'spike_len': [2.5,4.6,3.3]}
